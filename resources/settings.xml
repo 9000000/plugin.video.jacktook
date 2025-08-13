@@ -93,6 +93,7 @@
                             <option label="Korean">Korean</option>
                             <option label="Ukrainian">Ukrainian</option>
                             <option label="Chinese">Chinese</option>
+							<option label="Vietnamese">Vietnamese</option>
                         </options>
                     </constraints>
                     <control type="list" format="string" />
@@ -648,6 +649,7 @@
                             <option label="Korean">Korean</option>
                             <option label="Ukrainian">Ukrainian</option>
                             <option label="Chinese">Chinese</option>
+							<option label="Vietnamese">Vietnamese</option>
                         </options>
                     </constraints>
                     <control type="list" format="string" />
