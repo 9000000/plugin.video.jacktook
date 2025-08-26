@@ -2,7 +2,7 @@ from lib.clients.stremio import ui
 from lib.clients.stremio.stremio import StremioAddonClient
 from lib.clients.base import TorrentStream
 from lib.utils.clients.utils import get_client, update_dialog
-from lib.utils.kodi.utils import get_setting, kodilog
+from lib.utils.kodi.utils import get_setting, kodilog, notification
 from lib.utils.general.utils import Indexer, cache_results, get_cached_results
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Dict, Optional, Any
@@ -38,6 +38,7 @@ def search_client(
         if indexer_key == Indexer.STREMIO:
             stremio_addons = ui.get_selected_stream_addons()
             if not stremio_addons:
+                notification("No Stremio addons selected")
                 return []
             return [
                 result
@@ -157,9 +158,8 @@ def search_client(
                     total_results.extend(results)
             except Exception as e:
                 import traceback
-
                 error_details = traceback.format_exc()
-                kodilog(f"Error: {e}\n{error_details}")
+                kodilog(f"Error in {e}\n{error_details}")
 
     cache_results(total_results, query, mode, media_type, episode)
     return total_results
