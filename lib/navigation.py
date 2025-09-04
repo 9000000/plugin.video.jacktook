@@ -11,6 +11,7 @@ from lib.api.tmdbv3api.tmdb import TMDb
 from lib.api.trakt.trakt import TraktAPI
 from lib.clients.trakt.trakt import TraktClient
 
+from lib.api.mdblist.mdblist import MDblistAPI
 from lib.api.debrid.premiumize import Premiumize
 from lib.api.debrid.realdebrid import RealDebrid
 from lib.api.debrid.torbox import Torbox
@@ -57,7 +58,6 @@ from lib.utils.kodi.utils import (
     play_media,
     set_view,
     show_keyboard,
-    translatePath,
     translation,
 )
 from lib.utils.player.utils import resolve_playback_source
@@ -91,6 +91,7 @@ from lib.utils.general.utils import (
     set_content_type,
     set_pluging_category,
     set_watched_title,
+    show_log_export_dialog,
     ssl_enabled,
 )
 from lib.utils.general.items_menus import (
@@ -404,7 +405,7 @@ def history_menu(params):
 def anime_item(params):
     set_pluging_category(translation(90009))
     mode = params.get("mode")
-    
+
     addDirectoryItem(
         ADDON_HANDLE,
         build_url("anime_search", mode=mode, category="Anime_Search"),
@@ -932,6 +933,45 @@ def search_item(params):
             )
     elif api == "tmdb":
         TmdbClient.handle_tmdb_query(params)
+    elif api == "mdblist":
+        mdblist_menu(mode)
+    else:
+        notification("Unsupported API")
+
+
+def mdblist_menu(mode):
+    set_pluging_category("MDblist")
+    addDirectoryItem(
+        ADDON_HANDLE,
+        build_url(
+            "search_mdbd_lists",
+            mode=mode,
+            page=1,
+        ),
+        build_list_item("Search Lists", "search.png"),
+        isFolder=True,
+    )
+    addDirectoryItem(
+        ADDON_HANDLE,
+        build_url(
+            "top_mdbd_lists",
+            mode=mode,
+            page=1,
+        ),
+        build_list_item("Top Lists", "mdblist.png"),
+        isFolder=True,
+    )
+    addDirectoryItem(
+        ADDON_HANDLE,
+        build_url(
+            "user_mdbd_lists",
+            mode=mode,
+            page=1,
+        ),
+        build_list_item("User Lists", "mdblist.png"),
+        isFolder=True,
+    )
+    endOfDirectory(ADDON_HANDLE)
 
 
 def trakt_list_content(params):
@@ -1027,13 +1067,7 @@ def clear_history(params):
 
 
 def kodi_logs(params):
-    log_file = params.get("log_file")
-    kodi_log_path = os.path.join(translatePath("special://logpath"), log_file)
-    if os.path.exists(kodi_log_path):
-        kodi_log_content = open(kodi_log_path, "r", encoding="utf-8").read()
-        dialog_text("Kodi Logs", kodi_log_content)
-    else:
-        notification("Kodi log file not found.")
+    Thread(target=show_log_export_dialog, args=(params,)).start()
 
 
 def files_history(params):
