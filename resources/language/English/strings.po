@@ -1562,11 +1562,11 @@ msgid "Scrape again"
 msgstr ""
 
 msgctxt "#90050"
-msgid "Search recommendations"
+msgid "Recommendations"
 msgstr ""
 
 msgctxt "#90051"
-msgid "Search similar"
+msgid "Similar"
 msgstr ""
 
 msgctxt "#90052"
@@ -1672,3 +1672,32 @@ msgstr ""
 msgctxt "#90077"
 msgid "MDbList Configuration"
 msgstr ""
+
+msgctxt "#90078"
+msgid "People"
+msgstr ""
+
+msgctxt "#90079"
+msgid "Popular People"
+msgstr ""
+
+msgctxt "#90080"
+msgid "Latest People"
+msgstr ""
+
+msgctxt "#90081"
+msgid "Search People"
+msgstr ""
+
+msgctxt "#90082"
+msgid "Download subtitles"
+msgstr ""
+
+msgctxt "#90083"
+msgid "Download video"
+msgstr ""
+
+msgctxt "#90084"
+msgid "Browse into"
+msgstr ""
+
