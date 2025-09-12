@@ -649,16 +649,42 @@ def handle_results(
     if not direct and ids:
         tmdb_id = ids.get("tmdb_id", "")
         tvdb_id = ids.get("tvdb_id", "")
-        details = get_tmdb_media_details(tmdb_id, mode)
-        poster = f"{TMDB_POSTER_URL}{getattr(details, 'poster_path', '') or ''}"
-        overview = getattr(details, "overview", "") or ""
-        fanart_data = get_fanart_details(tvdb_id=tvdb_id, tmdb_id=tmdb_id, mode=mode)
+
+        poster = fanart = clearlogo = overview = ""
+        clearart = keyart = banner = landscape = ""
+
+        if tmdb_id:
+            details = get_tmdb_media_details(tmdb_id, mode)
+            poster_path = getattr(details, "poster_path", "")
+            poster = f"{TMDB_POSTER_URL}{poster_path}" if poster_path else ""
+            overview = getattr(details, "overview", "")
+
+        if tmdb_id or tvdb_id:
+            fanart_details = get_fanart_details(
+                tvdb_id=tvdb_id, tmdb_id=tmdb_id, mode=mode
+            )
+            fanart = (
+                fanart_details.get("fanart") or fanart_details.get("poster") or poster
+            )
+            clearlogo = (
+                fanart_details.get("clearlogo") or fanart_details.get("clearart") or ""
+            )
+
+            clearart = fanart_details.get("clearart", "")
+            keyart = fanart_details.get("keyart", "")
+            banner = fanart_details.get("banner", "")
+            landscape = fanart_details.get("landscape", "")
+
         item_info.update(
             {
                 "poster": poster,
-                "fanart": fanart_data.get("fanart") or poster,
-                "clearlogo": fanart_data.get("clearlogo"),
-                "plot": overview,
+                "fanart": fanart,
+                "clearlogo": clearlogo,
+                "overview": overview,
+                "clearart": clearart,
+                "keyart": keyart,
+                "banner": banner,
+                "landscape": landscape,
             }
         )
 
@@ -705,8 +731,6 @@ def auto_play(results: List[TorrentStream], ids, tv_data, mode):
 
     selected_result = quality_matches[0]
 
-    kodilog(f"Selected result for auto play: {selected_result}")
-
     playback_info = resolve_playback_source(
         data={
             "title": selected_result.title,
@@ -735,7 +759,7 @@ def cloud_details(params):
 
     if debrid_name == DebridType.RD:
         downloads_method = "get_rd_downloads"
-        info_method = "rd_info"
+        info_method = "real_debrid_info"
     elif debrid_name == DebridType.PM:
         notification("Not yet implemented")
         return

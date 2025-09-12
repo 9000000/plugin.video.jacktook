@@ -4,7 +4,7 @@ from lib.clients.tmdb.utils.utils import (
     add_tmdb_show_context_menu,
     tmdb_get,
 )
-from lib.utils.kodi.utils import ADDON_HANDLE, build_url
+from lib.utils.kodi.utils import ADDON_HANDLE, build_url, get_setting, kodilog
 from lib.utils.general.utils import (
     get_fanart_details,
     set_media_infoTag,
@@ -15,13 +15,16 @@ from xbmcplugin import addDirectoryItem
 
 
 def show_season_info(ids, mode, media_type):
-    tmdb_id, tvdb_id, imdb_id = ids.values()
+    tmdb_id = ids.get("tmdb_id")
+    tvdb_id = ids.get("tvdb_id")
+    imdb_id = ids.get("imdb_id")
 
     if imdb_id:
         res = tmdb_get("find_by_imdb_id", imdb_id)
-        if res and "tv_results" in res:
+        if res and res.get("tv_results"):
             tmdb_id = res["tv_results"][0]["id"]
-        ids = {"tmdb_id": tmdb_id, "tvdb_id": tvdb_id, "imdb_id": imdb_id}
+
+    ids = {"tmdb_id": tmdb_id, "tvdb_id": tvdb_id, "imdb_id": imdb_id}
 
     details = tmdb_get("tv_details", tmdb_id)
     name = getattr(details, "name")
@@ -30,21 +33,20 @@ def show_season_info(ids, mode, media_type):
 
     for season in seasons:
         season_name = season.name
-        if "Specials" in season_name:
-            continue
+        overview = season.overview
+        if not overview:
+            season.update({"overview": getattr(details, "overview", "")})
 
         if "Miniseries" in season_name:
             season_name = "Season 1"
 
         season_number = season.season_number
-        if season_number == 0:
+        if season_number == 0 and not get_setting("include_tvshow_specials"):
             continue
 
         list_item = ListItem(label=season_name)
 
-        set_media_infoTag(
-            list_item, metadata=details, fanart_details=fanart_details, mode=mode
-        )
+        set_media_infoTag(list_item, data=season, fanart_data=fanart_details, mode=mode)
 
         list_item.setProperty("IsPlayable", "false")
 
@@ -76,7 +78,7 @@ def show_episode_info(tv_name, season, ids, mode, media_type):
     season_details = tmdb_get(
         "season_details", {"id": ids.get("tmdb_id"), "season": season}
     )
-    fanart_data = get_fanart_details(tvdb_id=ids.get("tvdb_id"), mode=mode)
+    fanart_details = get_fanart_details(tvdb_id=ids.get("tvdb_id"), mode=mode)
 
     for episode in getattr(season_details, "episodes"):
         ep_name = episode.name
@@ -87,7 +89,7 @@ def show_episode_info(tv_name, season, ids, mode, media_type):
         list_item = ListItem(label=f"{season}x{episode_number}. {ep_name}")
 
         set_media_infoTag(
-            list_item, metadata=episode, fanart_details=fanart_data, mode="episode"
+            list_item, data=episode, fanart_data=fanart_details, mode=mode
         )
 
         list_item.setProperty("IsPlayable", "true")

@@ -313,107 +313,99 @@ def build_list_item(label, icon="", poster_path=""):
     return item
 
 
-def make_listing(metadata):
-    title = metadata.get("title")
-    ids = metadata.get("ids", {})
-    tv_data = metadata.get("tv_data", {})
-    mode = metadata.get("mode", "")
+def make_listing(data):
+    title = data.get("title")
+    ids = data.get("ids", {})
+    tv_data = data.get("tv_data", {})
+    mode = data.get("mode", "")
 
     list_item = ListItem(label=title)
     list_item.setLabel(title)
     list_item.setContentLookup(False)
 
-    metadata["episode"] = tv_data.get("episode", metadata.get("episode", ""))
-    metadata["season"] = tv_data.get("season", metadata.get("season", ""))
-    metadata["name"] = tv_data.get("name", "")
-    metadata["id"] = ids.get("tmdb_id")
-    metadata["imdb_id"] = ids.get("imdb_id")
+    data["episode"] = tv_data.get("episode", data.get("episode", ""))
+    data["season"] = tv_data.get("season", data.get("season", ""))
+    data["name"] = tv_data.get("name", "")
+    data["id"] = ids.get("tmdb_id")
+    data["imdb_id"] = ids.get("imdb_id")
 
-    set_media_infoTag(list_item, metadata=metadata, mode=mode)
+    set_media_infoTag(list_item, data=data, mode=mode)
 
     list_item.setProperty("IsPlayable", "true")
     return list_item
 
 
-def set_media_infoTag(list_item, metadata, fanart_details={}, mode="video"):
-    kodilog(f"Setting media infoTag for mode: {mode}", level=xbmc.LOGDEBUG)
-
+def set_media_infoTag(list_item, data, fanart_data={}, mode="video"):
     info_tag = list_item.getVideoInfoTag()
 
     # General Video Info
-    info_tag.setTitle(metadata.get("title", metadata.get("name", "")))
+    info_tag.setTitle(data.get("title", data.get("name", "")))
     info_tag.setOriginalTitle(
-        metadata.get(
-            "original_title", metadata.get("original_name", metadata.get("title", ""))
-        )
+        data.get("original_title", data.get("original_name", data.get("title", "")))
     )
-    info_tag.setPlot(
-        metadata.get("overview") or metadata.get("biography", "No overview")
-    )
+    info_tag.setPlot(data.get("overview") or data.get("biography", "No overview"))
 
     # Year & Dates
-    if "first_air_date" in metadata:
-        first_air_date = metadata["first_air_date"]
+    if "first_air_date" in data:
+        first_air_date = data["first_air_date"]
         if first_air_date:
             info_tag.setFirstAired(first_air_date)
             info_tag.setYear(int(first_air_date.split("-")[0]))
-    elif "air_date" in metadata:
-        info_tag.setFirstAired(metadata["air_date"])  # Setting air_date for episodes
-    elif "release_date" in metadata:
-        release_date = metadata["release_date"]
+    elif "air_date" in data:
+        info_tag.setFirstAired(data["air_date"])  # Setting air_date for episodes
+    elif "release_date" in data:
+        release_date = data["release_date"]
         if release_date:
             info_tag.setPremiered(release_date)
             info_tag.setYear(int(release_date.split("-")[0]))
 
-    if "runtime" in metadata:
-        runtime = metadata.get("runtime")
+    if "runtime" in data:
+        runtime = data.get("runtime")
         if runtime:
             info_tag.setDuration(runtime * 60)  # Convert to seconds
 
     # Rating
     info_tag.setRating(
-        metadata.get("vote_average", metadata.get("rating", 0)),
-        votes=metadata.get("vote_count", metadata.get("votes", 0)),
+        data.get("vote_average", data.get("rating", 0)),
+        votes=data.get("vote_count", data.get("votes", 0)),
     )
 
-    info_tag.setUserRating(int(float(metadata.get("popularity", 0))))
+    info_tag.setUserRating(int(float(data.get("popularity", 0))))
 
     # Media Type
     if mode == "movies":
         info_tag.setMediaType("movie")
     elif mode == "tv":
-        info_tag.setMediaType("tvshow")
-    elif mode == "episode":
         info_tag.setMediaType("episode")
     else:
         info_tag.setMediaType("video")
 
     # Classification
-    genres = metadata.get("genre_ids", metadata.get("genres", []))
+    genres = data.get("genre_ids", data.get("genres", []))
     final_genres = extract_genres(genres, mode)
     info_tag.setGenres(final_genres)
 
     # Countries
-    countries = list(metadata.get("origin_country", metadata.get("countries", [])))
+    countries = list(data.get("origin_country", data.get("countries", [])))
     if isinstance(countries, str):
         countries = [countries]  # Ensure it's a List
     info_tag.setCountries(countries)
 
     # Identification
-    if "imdb_id" in metadata:
-        info_tag.setIMDBNumber(metadata["imdb_id"])
-    if "id" in metadata:
+    if "imdb_id" in data:
+        info_tag.setIMDBNumber(data["imdb_id"])
+    if "id" in data:
         unique_ids = {
-            "tmdb": str(metadata.get("id", "")),
-            "imdb": metadata.get("imdb_id", ""),
+            "tmdb": str(data.get("id", "")),
+            "imdb": data.get("imdb_id", ""),
         }
         info_tag.setUniqueIDs(unique_ids, "tmdb")
 
     # Artwork
-    set_listitem_artwork(list_item, metadata, fanart_details)
+    set_listitem_artwork(list_item, data, fanart_data)
 
-    if "seasons" in metadata:
-        seasons = list(metadata["seasons"])
+    if "seasons" in data:
+        seasons = list(data["seasons"])
         if isinstance(seasons, list):
             named_seasons = [
                 (season.get("season_number", 0), season.get("name", ""))
@@ -423,14 +415,13 @@ def set_media_infoTag(list_item, metadata, fanart_details={}, mode="video"):
         else:
             info_tag.addSeason(seasons.get("season_number", 0), seasons.get("name", ""))
 
-    set_cast_and_actors(info_tag, metadata)
+    set_cast_and_actors(info_tag, data)
 
     # Episode & Season Info (for TV shows/episodes)
     if mode in ["tv", "episode"]:
-        info_tag.setTvShowTitle(metadata.get("tvshow_title", metadata.get("name", "")))
-    if mode == "episode":
-        info_tag.setSeason(metadata.get("season", metadata.get("season_number", 0)))
-        info_tag.setEpisode(metadata.get("episode", metadata.get("episode_number", 0)))
+        info_tag.setTvShowTitle(data.get("tvshow_title", data.get("name", "")))
+        info_tag.setSeason(int(data.get("season", data.get("season_number", 0))))
+        info_tag.setEpisode(int(data.get("episode", data.get("episode_number", 0))))
 
 
 def extract_genres(genres, media_type="movies"):
@@ -461,18 +452,16 @@ def extract_genres(genres, media_type="movies"):
     return genre_list
 
 
-def set_cast_and_actors(info_tag, metadata):
+def set_cast_and_actors(info_tag, data):
     cast_list = []
     casts = []
 
-    kodilog(f"Setting cast and actors for metadata: {metadata}", level=xbmc.LOGDEBUG)
-
-    if "credits" in metadata:
-        credits = metadata["credits"]
+    if "credits" in data:
+        credits = data["credits"]
         if "cast" in credits:
             casts = credits["cast"]
-    elif "casts" in metadata:
-        casts_obj = metadata["casts"]
+    elif "casts" in data:
+        casts_obj = data["casts"]
         casts = casts_obj.get("cast", [])
         if not casts:
             kodilog(f"Extracted casts from list: {casts}", level=xbmc.LOGDEBUG)
@@ -480,12 +469,10 @@ def set_cast_and_actors(info_tag, metadata):
                 casts = list(casts_obj)
             except Exception:
                 casts = []
-    elif "cast" in metadata:
-        casts = metadata["cast"]
-    elif "actors" in metadata:
-        casts = metadata["actors"]
-
-    kodilog(f"Extracted casts: {casts}", level=xbmc.LOGDEBUG)
+    elif "cast" in data:
+        casts = data["cast"]
+    elif "actors" in data:
+        casts = data["actors"]
 
     for cast_member in casts:
         actor = xbmc.Actor(
@@ -500,17 +487,17 @@ def set_cast_and_actors(info_tag, metadata):
         )
         cast_list.append(actor)
 
-    if "credits" in metadata and "crew" in metadata["credits"]:
-        set_cast_and_crew({"crew": metadata["credits"]["crew"]}, cast_list)
-    elif "crew" in metadata:
-        set_cast_and_crew(metadata, cast_list)
+    if "credits" in data and "crew" in data["credits"]:
+        set_cast_and_crew({"crew": data["credits"]["crew"]}, cast_list)
+    elif "crew" in data:
+        set_cast_and_crew(data, cast_list)
 
     info_tag.setCast(cast_list)
 
 
-def set_cast_and_crew(metadata, cast_list):
-    if "crew" in metadata:
-        for crew_member in metadata["crew"]:
+def set_cast_and_crew(data, cast_list):
+    if "crew" in data:
+        for crew_member in data["crew"]:
             actor = xbmc.Actor(
                 name=crew_member["name"],
                 role=crew_member["job"],  # Director, Writer, etc.
@@ -523,8 +510,8 @@ def set_cast_and_crew(metadata, cast_list):
             )
             cast_list.append(actor)
 
-    if "guest_stars" in metadata:
-        for guest in metadata["guest_stars"]:
+    if "guest_stars" in data:
+        for guest in data["guest_stars"]:
             actor = xbmc.Actor(
                 name=guest.get("name", "Unknown"),
                 role=guest.get("character", "Unknown"),  # Role = Character name
@@ -538,39 +525,46 @@ def set_cast_and_crew(metadata, cast_list):
             cast_list.append(actor)
 
 
-def set_listitem_artwork(list_item, metadata, fanart_details={}):
-    if fanart_details is None:
-        fanart_details = {}
-
+def set_listitem_artwork(list_item, data, fanart_data):
     def tmdb_url(path, size):
         return f"http://image.tmdb.org/t/p/{size}{path}" if path else ""
 
     thumb_sources = [
-        (metadata.get("poster_path"), "w780"),
-        (metadata.get("still_path"), "w1280"),
+        (data.get("poster_path"), "w780"),
+        (data.get("still_path"), "w1280"),
     ]
     poster_sources = [
-        (metadata.get("poster_path"), "w500"),
-        (metadata.get("still_path"), "w1280"),
-        (metadata.get("profile_path"), "w500"),
+        (data.get("poster_path"), "w500"),
+        (data.get("still_path"), "w1280"),
+        (data.get("profile_path"), "w500"),
     ]
     fanart_sources = [
-        (metadata.get("backdrop_path"), "w1280"),
-        (metadata.get("still_path"), "w1280"),
+        (data.get("backdrop_path"), "w1280"),
+        (data.get("still_path"), "w1280"),
     ]
 
-    def first_valid(sources, fallback=""):
+    def first_valid(sources, fallback_key=""):
         for path, size in sources:
             url = tmdb_url(path, size)
             if url:
                 return url
-        return fallback
+        if fallback_key:
+            return data.get(fallback_key, "") or fanart_data.get(fallback_key, "")
+        return ""
 
     list_item.setArt(
         {
             "thumb": first_valid(thumb_sources),
-            "poster": first_valid(poster_sources),
-            "fanart": first_valid(fanart_sources, fanart_details.get("fanart", "")),
+            "poster": first_valid(poster_sources, "poster"),
+            "fanart": first_valid(fanart_sources, "fanart"),
+            "icon": first_valid(poster_sources),
+            "banner": first_valid(fanart_sources, "banner"),
+            "clearart": first_valid(fanart_sources, "clearart"),
+            "clearlogo": first_valid([], "clearlogo"),
+            "tvshow.clearart": first_valid(fanart_sources, "clearart"),
+            "tvshow.clearlogo": first_valid([], "clearlogo"),
+            "tvshow.landscape": first_valid(fanart_sources, "landscape"),
+            "tvshow.banner": first_valid(fanart_sources, "banner"),
         }
     )
 
@@ -631,10 +625,9 @@ def get_fanart_details(tvdb_id="", tmdb_id="", mode="tv"):
         fanart = FanartTv(client_key="fa836e1c874ba95ab08a14ee88e05565")
         if mode == "tv":
             results = fanart.get_show(tvdb_id)
-            data = get_fanart_data(results)
         else:
             results = fanart.get_movie(tmdb_id)
-            data = get_fanart_data(results)
+        data = get_fanart_data(results)
         if data:
             cache.set(
                 identifier,
@@ -644,24 +637,40 @@ def get_fanart_details(tvdb_id="", tmdb_id="", mode="tv"):
     return data
 
 
-def get_fanart_data(fanart_details):
-    fanart_objec = fanart_details["fanart_object"]
-    fanart = clearlogo = poster = ""
-    if fanart_objec:
-        art = fanart_objec.get("art", {})
-        fanart_obj = art.get("fanart", {})
-        if fanart_obj:
-            fanart = fanart_obj[0]["url"]
+def get_fanart_data(res):
+    art = res.get("fanart_object", {}).get("art", {})
 
-        clearlogo_obj = art.get("clearlogo", {})
-        if clearlogo_obj:
-            clearlogo = clearlogo_obj[0]["url"]
+    from lib.clients.tmdb.utils.utils import LANGUAGES
 
-        poster_obj = art.get("poster", {})
-        if poster_obj:
-            poster = poster_obj[0]["url"]
+    language_index = get_setting("language", 18)
+    lang = LANGUAGES[int(language_index)].split("-")[0].strip()
 
-    return {"fanart": fanart, "clearlogo": clearlogo, "poster": poster}
+    return {
+        "fanart": get_best_image(art.get("fanart", []), lang),
+        "clearlogo": get_best_image(art.get("clearlogo", []), lang),
+        "poster": get_best_image(art.get("poster", []), lang),
+        "clearart": get_best_image(art.get("clearart", []), lang),
+        "keyart": get_best_image(art.get("keyart", []), lang),
+        "banner": get_best_image(art.get("banner", []), lang),
+        "landscape": get_best_image(art.get("landscape", []), lang),
+    }
+
+
+def get_best_image(images, lang="en"):
+    if not images:
+        return ""
+    # Try preferred language first
+    lang_matches = [img for img in images if img.get("language") == lang]
+    if lang_matches:
+        return max(lang_matches, key=lambda x: x.get("rating", 0)).get("url", "")
+
+    # 2. Fallback to English if preferred language not found
+    en_matches = [img for img in images if img.get("language") == "en"]
+    if en_matches:
+        return max(en_matches, key=lambda x: x.get("rating", 0)).get("url", "")
+
+    # 3. Fallback: highest rating overall
+    return max(images, key=lambda x: x.get("rating", 0)).get("url", "")
 
 
 def get_cached_results(query, mode, media_type, episode):
