@@ -182,21 +182,21 @@ def root_menu():
         addDirectoryItem(
             ADDON_HANDLE,
             build_url("telegram_menu"),
-            build_list_item(translation(90013), "cloud.png"),
+            build_list_item(translation(90013), "telegram.png"),
             isFolder=True,
         )
 
     addDirectoryItem(
         ADDON_HANDLE,
         build_url("cloud"),
-        build_list_item(translation(90014), "cloud.png"),
+        build_list_item(translation(90014), "cloud2.png"),
         isFolder=True,
     )
 
     addDirectoryItem(
         ADDON_HANDLE,
         build_url("downloads_menu"),
-        build_list_item(translation(90015), "cloud.png"),
+        build_list_item(translation(90015), "download2.png"),
         isFolder=True,
     )
 
@@ -824,7 +824,7 @@ def get_rd_downloads(params):
     debrid_color = get_random_color(type, formatted=False)
     formated_type = f"[B][COLOR {debrid_color}]{type}[/COLOR][/B]"
 
-    rd_client = RealDebrid(token=str(get_setting("real_debrid_token")))
+    rd_client = RealDebrid(token=str(get_setting("real_debrid_token", "")))
     downloads = rd_client.get_user_downloads_list(page=page)
 
     sorted_downloads = sorted(
@@ -1088,7 +1088,7 @@ def next_page_anime(params):
 
 def download(magnet, type):
     if type == "RD":
-        rd_client = RealDebrid(token=str(get_setting("real_debrid_token")))
+        rd_client = RealDebrid(token=str(get_setting("real_debrid_token", "")))
         thread = Thread(
             target=rd_client.download, args=(magnet,), kwargs={"pack": False}
         )
@@ -1160,12 +1160,12 @@ def clear_all_cached(params):
 
 
 def rd_auth(params):
-    rd_client = RealDebrid(token=str(get_setting("real_debrid_token")))
+    rd_client = RealDebrid(token=str(get_setting("real_debrid_token", ""),))
     rd_client.auth()
 
 
 def rd_remove_auth(params):
-    rd_client = RealDebrid(token=str(get_setting("real_debrid_token")))
+    rd_client = RealDebrid(token=str(get_setting("real_debrid_token", "")))
     rd_client.remove_auth()
 
 
