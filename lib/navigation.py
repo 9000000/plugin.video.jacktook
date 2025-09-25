@@ -18,7 +18,7 @@ from lib.clients.stremio.catalogs import list_stremio_catalogs
 from lib.clients.tmdb.tmdb import (
     TmdbClient,
 )
-from lib.clients.tmdb.utils.utils import LANGUAGES, get_tmdb_media_details
+from lib.clients.tmdb.utils.utils import LANGUAGES
 from lib.clients.search import search_client
 
 from lib.db.cached import cache
@@ -42,7 +42,7 @@ from lib.utils.kodi.utils import (
     CHANGELOG_PATH,
     EPISODES_TYPE,
     JACKTORR_ADDON,
-    SHOWS_TYPE,
+    SEASONS_TYPE,
     action_url_run,
     build_url,
     burst_addon_settings,
@@ -69,15 +69,14 @@ from lib.utils.debrid.debrid_utils import check_debrid_cached
 from lib.utils.kodi.settings import auto_play_enabled, get_cache_expiration
 from lib.utils.kodi.settings import addon_settings
 from lib.utils.general.utils import (
-    TMDB_POSTER_URL,
     DebridType,
     DialogListener,
     build_list_item,
+    build_media_metadata,
     check_debrid_enabled,
     clean_auto_play_undesired,
     clear,
     clear_all_cache,
-    get_fanart_details,
     get_password,
     get_port,
     get_random_color,
@@ -554,7 +553,9 @@ def search(params):
     set_content_type(mode, media_type)
     set_watched_title(query, ids, mode, media_type)
 
-    ep_name, episode, season = extract_tv_data(tv_data)
+    ep_name = tv_data.get("name", "") 
+    episode = tv_data.get("episode", 1) 
+    season  = tv_data.get("season", 1)
 
     results = perform_search(query, ids, mode, media_type, rescrape, season, episode)
     kodilog(f"Search results: {results}", level=xbmc.LOGDEBUG)
@@ -580,22 +581,7 @@ def search(params):
         auto_play(post_results, ids, tv_data, mode)
         return
 
-    data = handle_results(post_results, mode, ids, tv_data, direct)
-    if not data:
-        cancel_playback()
-        return
-
-    play_data(data)
-
-
-def extract_tv_data(tv_data):
-    if tv_data:
-        return (
-            tv_data.get("name", ""),
-            tv_data.get("episode", 0),
-            tv_data.get("season", 0),
-        )
-    return "", 0, 0
+    show_source_select(post_results, mode, ids, tv_data, direct)
 
 
 def perform_search(
@@ -637,7 +623,7 @@ def process_results(
             )
 
 
-def handle_results(
+def show_source_select(
     results: List[TorrentStream],
     mode: str,
     ids: dict,
@@ -649,50 +635,13 @@ def handle_results(
     if not direct and ids:
         tmdb_id = ids.get("tmdb_id", "")
         tvdb_id = ids.get("tvdb_id", "")
-
-        poster = fanart = clearlogo = overview = ""
-        clearart = keyart = banner = landscape = ""
-
-        if tmdb_id:
-            details = get_tmdb_media_details(tmdb_id, mode)
-            poster_path = getattr(details, "poster_path", "")
-            poster = f"{TMDB_POSTER_URL}{poster_path}" if poster_path else ""
-            overview = getattr(details, "overview", "")
-
-        if tmdb_id or tvdb_id:
-            fanart_details = get_fanart_details(
-                tvdb_id=tvdb_id, tmdb_id=tmdb_id, mode=mode
-            )
-            fanart = (
-                fanart_details.get("fanart") or fanart_details.get("poster") or poster
-            )
-            clearlogo = (
-                fanart_details.get("clearlogo") or fanart_details.get("clearart") or ""
-            )
-
-            clearart = fanart_details.get("clearart", "")
-            keyart = fanart_details.get("keyart", "")
-            banner = fanart_details.get("banner", "")
-            landscape = fanart_details.get("landscape", "")
-
-        item_info.update(
-            {
-                "poster": poster,
-                "fanart": fanart,
-                "clearlogo": clearlogo,
-                "overview": overview,
-                "clearart": clearart,
-                "keyart": keyart,
-                "banner": banner,
-                "landscape": landscape,
-            }
-        )
+        item_info.update(build_media_metadata(tmdb_id, tvdb_id, mode))
 
     xml_file_string = (
         "source_select_direct.xml" if mode == "direct" else "source_select.xml"
     )
 
-    return source_select(
+    source_select(
         item_info,
         xml_file=xml_file_string,
         sources=results,
@@ -917,9 +866,9 @@ def tv_seasons_details(params):
     mode = params["mode"]
     media_type = params.get("media_type", None)
 
-    setContent(ADDON_HANDLE, SHOWS_TYPE)
+    setContent(ADDON_HANDLE, SEASONS_TYPE)
     show_season_info(ids, mode, media_type)
-    set_view("widelist")
+    set_view("current")
     endOfDirectory(ADDON_HANDLE)
 
 
@@ -927,12 +876,12 @@ def tv_episodes_details(params):
     ids = json.loads(params.get("ids", "{}"))
     mode = params["mode"]
     tv_name = params["tv_name"]
-    season = params["season"]
+    season = int(params["season"])
     media_type = params.get("media_type", None)
 
     setContent(ADDON_HANDLE, EPISODES_TYPE)
     show_episode_info(tv_name, season, ids, mode, media_type)
-    set_view("widelist")
+    set_view("current")
     endOfDirectory(ADDON_HANDLE)
 
 
@@ -1139,7 +1088,7 @@ def clear_history(params):
 
 
 def kodi_logs(params):
-    Thread(target=show_log_export_dialog, args=(params,)).start()
+    show_log_export_dialog(params)
 
 
 def files_history(params):
@@ -1160,7 +1109,11 @@ def clear_all_cached(params):
 
 
 def rd_auth(params):
-    rd_client = RealDebrid(token=str(get_setting("real_debrid_token", ""),))
+    rd_client = RealDebrid(
+        token=str(
+            get_setting("real_debrid_token", ""),
+        )
+    )
     rd_client.auth()
 
 

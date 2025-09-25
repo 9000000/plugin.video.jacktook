@@ -54,6 +54,7 @@ class SourceSelect(BaseWindow):
         self.setProperty("resolving", "false")
         self.filtered_sources: Optional[List[TorrentStream]] = None
         self.filter_applied: bool = False
+        
 
     def onInit(self) -> None:
         self.display_list: xbmcgui.ControlList = self.getControlList(1000)
@@ -89,7 +90,6 @@ class SourceSelect(BaseWindow):
 
     def doModal(self) -> Optional[Dict]:
         super().doModal()
-        return self.playback_info
 
     def handle_action(self, action_id: int, control_id: Optional[int] = None) -> None:
         self.position = self.display_list.getSelectedPosition()
@@ -160,17 +160,17 @@ class SourceSelect(BaseWindow):
             self.set_default_focus(self.display_list, 1000, control_list_reset=True)
 
         elif action_id == 117:  # Context menu action
-            selected_source = self.sources[self.position]
+            selected_source = self.list_sources[self.position]
             if selected_source.type == "Torrent":
                 response = xbmcgui.Dialog().contextmenu(
-                    ["Download to Debrid", "Download file"]
+                    ["Download to Debrid", translation(90083)]
                 )
                 if response == 0:
                     self._download_to_debrid()
                 elif response == 1:
                     self._download_file()
             elif selected_source.type == "Direct":
-                response = xbmcgui.Dialog().contextmenu(["Download file"])
+                response = xbmcgui.Dialog().contextmenu([translation(90083)])
                 if response == 0:
                     self._download_file()
             else:
@@ -285,17 +285,11 @@ class SourceSelect(BaseWindow):
             item_information=self.item_information,
         )
         resolver_window.doModal(pack_select)
-        self.playback_info = resolver_window.playback_info
-        if self.playback_info:
-            self.playback_info.update(self.item_information)
-
-        self.setProperty("instant_close", "true")
 
         if download_subtitle:
-            self._download_subtitle()
+            self._download_subtitle()  
 
         del resolver_window
-        self.close()
 
     def _download_subtitle(self):
         notification = xbmcgui.Dialog()
