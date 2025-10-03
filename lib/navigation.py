@@ -58,7 +58,7 @@ from lib.utils.kodi.utils import (
     show_keyboard,
     translation,
 )
-from lib.utils.player.utils import resolve_playback_source
+from lib.utils.player.utils import resolve_playback_url
 from lib.utils.views.last_files import show_last_files
 from lib.utils.views.last_titles import show_last_titles
 from lib.utils.views.weekly_calendar import show_weekly_calendar
@@ -75,8 +75,8 @@ from lib.utils.general.utils import (
     build_media_metadata,
     check_debrid_enabled,
     clean_auto_play_undesired,
-    clear,
     clear_all_cache,
+    clear_history_by_type,
     get_password,
     get_port,
     get_random_color,
@@ -553,9 +553,9 @@ def search(params):
     set_content_type(mode, media_type)
     set_watched_title(query, ids, mode, media_type)
 
-    ep_name = tv_data.get("name", "") 
-    episode = tv_data.get("episode", 1) 
-    season  = tv_data.get("season", 1)
+    ep_name = tv_data.get("name", "")
+    episode = tv_data.get("episode", 1)
+    season = tv_data.get("season", 1)
 
     results = perform_search(query, ids, mode, media_type, rescrape, season, episode)
     kodilog(f"Search results: {results}", level=xbmc.LOGDEBUG)
@@ -633,9 +633,7 @@ def show_source_select(
     item_info = {"tv_data": tv_data, "ids": ids, "mode": mode}
 
     if not direct and ids:
-        tmdb_id = ids.get("tmdb_id", "")
-        tvdb_id = ids.get("tvdb_id", "")
-        item_info.update(build_media_metadata(tmdb_id, tvdb_id, mode))
+        item_info.update(build_media_metadata(ids, mode))
 
     xml_file_string = (
         "source_select_direct.xml" if mode == "direct" else "source_select.xml"
@@ -650,12 +648,6 @@ def show_source_select(
 
 def play_torrent(params):
     data = json.loads(params["data"])
-    player = JacktookPLayer()
-    player.run(data=data)
-    del player
-
-
-def play_data(data: dict):
     player = JacktookPLayer()
     player.run(data=data)
     del player
@@ -680,7 +672,7 @@ def auto_play(results: List[TorrentStream], ids, tv_data, mode):
 
     selected_result = quality_matches[0]
 
-    playback_info = resolve_playback_source(
+    playback_info = resolve_playback_url(
         data={
             "title": selected_result.title,
             "mode": mode,
@@ -887,7 +879,7 @@ def tv_episodes_details(params):
 
 def play_from_pack(params):
     data = json.loads(params.get("data"))
-    data = resolve_playback_source(data)
+    data = resolve_playback_url(data)
     if not data:
         return
     list_item = make_listing(data)
@@ -1083,8 +1075,14 @@ def settings(params):
     addon_settings()
 
 
+def clear_all_cached(params):
+    clear_all_cache()
+    notification(translation(30244))
+
+
 def clear_history(params):
-    clear(type=params.get("type"))
+    clear_history_by_type(type=params.get("type"))
+    notification(translation(90114))
 
 
 def kodi_logs(params):
@@ -1101,11 +1099,6 @@ def titles_history(params):
 
 def titles_calendar(params):
     show_weekly_calendar()
-
-
-def clear_all_cached(params):
-    clear_all_cache()
-    notification(translation(30244))
 
 
 def rd_auth(params):
