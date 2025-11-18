@@ -1,10 +1,11 @@
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 import json
 import os
 
 from lib.api.tmdbv3api.as_obj import AsObj
 from lib.api.tmdbv3api.objs.anime import TmdbAnime
-from lib.clients.tmdb.anime_client import TmdbAnimeClient
+from lib.clients.tmdb.anime import TmdbAnimeClient
 from lib.clients.tmdb.base import BaseTmdbClient
 from lib.clients.tmdb.collections import TmdbCollections
 from lib.clients.tmdb.people_client import PeopleClient
@@ -13,7 +14,6 @@ from lib.clients.tmdb.utils.utils import add_kodi_dir_item, tmdb_get
 from lib.utils.general.utils import (
     add_next_button,
     execute_thread_pool,
-    get_fanart_details,
     set_content_type,
     set_media_infoTag,
     set_pluging_category,
@@ -22,9 +22,9 @@ from lib.utils.general.utils import (
 
 from lib.db.pickle_db import PickleDatabase
 from lib.utils.kodi.utils import (
-    ADDON_HANDLE,
     ADDON_PATH,
     build_url,
+    end_of_directory,
     kodilog,
     set_view,
     show_keyboard,
@@ -32,48 +32,17 @@ from lib.utils.kodi.utils import (
     translation,
 )
 
+from lib.utils.views.shows import show_episode_info, show_season_info
 from lib.utils.views.weekly_calendar import is_this_week, parse_date_str
 from lib.utils.views.weekly_calendar import get_episodes_for_show
 
 from lib.utils.general.utils import Anime
 
 from xbmcgui import ListItem
-from xbmcplugin import endOfDirectory
 import xbmc
 
 
 class TmdbClient(BaseTmdbClient):
-    @staticmethod
-    def handle_tmdb_search(params):
-        set_pluging_category(translation(90006))
-        mode = params.get("mode")
-        set_content_type(mode)
-
-        page = int(params.get("page", 1))
-
-        query = (
-            show_keyboard(id=30241)
-            if page == 1
-            else PickleDatabase().get_key("search_query")
-        )
-        if not query:
-            return
-
-        if page == 1:
-            PickleDatabase().set_key("search_query", query)
-
-        data = tmdb_get("search_multi", {"query": query, "page": page})
-        if not data or getattr(data, "total_results", 0) == 0:
-            notification("No results found")
-            return
-
-        results = getattr(data, "results", [])
-        if results:
-            execute_thread_pool(results, TmdbClient.show_tmdb_results, mode)
-            add_next_button("handle_tmdb_search", page=page, mode=mode)
-
-        endOfDirectory(ADDON_HANDLE)
-
     @staticmethod
     def handle_tmdb_query(params):
         mode = params.get("mode")
@@ -198,6 +167,63 @@ class TmdbClient(BaseTmdbClient):
                 )
 
     @staticmethod
+    def handle_tmdb_search(params):
+        set_pluging_category(translation(90006))
+        mode = params.get("mode")
+        set_content_type(mode)
+
+        page = int(params.get("page", 1))
+        query = (
+            show_keyboard(id=30241)
+            if page == 1
+            else PickleDatabase().get_key("search_query")
+        )
+        if not query:
+            return
+
+        if page == 1:
+            PickleDatabase().set_key("search_query", query)
+
+        data = tmdb_get("search_multi", {"query": query, "page": page})
+        if not data or getattr(data, "total_results", 0) == 0:
+            notification("No results found")
+            return
+        
+        results = getattr(data, "results", [])
+        tmdb_meta_by_id = TmdbClient.fetch_tmdb_metadata_concurrently(results, mode)
+
+        if results:
+            for item in results:
+                tmdb_id = item.get("id", "")
+                title = item.get("title", "") or item.get("name", "")
+                media_type = item.get("media_type", "")
+
+                if media_type == "movie":
+                    label_title = f"[B]MOVIE -[/B] {title}"
+                elif media_type == "tv":
+                    label_title = f"[B]TV -[/B] {title}"
+                else:
+                    continue
+
+                if mode == "multi" and media_type == "tv":
+                    mode = "tv"
+                elif mode == "multi" and media_type == "movie":
+                    mode = "movies"
+
+                list_item = ListItem(label=label_title)
+                tmdb_obj = tmdb_meta_by_id.get(tmdb_id)
+                set_media_infoTag(list_item, data=tmdb_obj, mode=mode)
+                BaseTmdbClient.add_media_directory_item(
+                    list_item=list_item,
+                    mode=mode,
+                    title=title,
+                    ids={"tmdb_id": tmdb_id},
+                    media_type=media_type,
+                )
+            add_next_button("handle_tmdb_search", page=page + 1, mode=mode)
+            end_of_directory()
+
+    @staticmethod
     def tmdb_search_genres(mode, genre_id, page, submode=None):
         path_map = {
             "movies": "discover_movie",
@@ -211,7 +237,11 @@ class TmdbClient(BaseTmdbClient):
                 "page": page,
             },
             "tv": {"with_genres": genre_id, "page": page},
-            "anime": {"mode": submode, "genre_id": genre_id, "page": page},
+            "anime": {
+                "mode": submode,
+                "genre_id": genre_id,
+                "page": page,
+            },
         }
 
         path = path_map.get(mode)
@@ -222,23 +252,36 @@ class TmdbClient(BaseTmdbClient):
             return
 
         data = tmdb_get(path=path, params=params)
-
         if not data or getattr(data, "total_results", 0) == 0:
             notification("No results found")
             return
 
-        execute_thread_pool(
-            getattr(data, "results"), TmdbClient.show_tmdb_results, mode, submode
-        )
+        results = getattr(data, "results", [])
+        tmdb_meta_by_id = TmdbClient.fetch_tmdb_metadata_concurrently(results, mode)
 
-        add_next_button(
-            "search_tmdb_genres",
-            mode=mode,
-            submode=submode,
-            genre_id=genre_id,
-            page=page,
-        )
-        endOfDirectory(ADDON_HANDLE)
+        if results:
+            for item in results:
+                tmdb_id = item.get("id", "")
+                title = item.get("title", "") or item.get("name", "")
+                media_type = item.get("media_type", "")
+                list_item = ListItem(label=title)
+                tmdb_obj = tmdb_meta_by_id.get(tmdb_id)
+                set_media_infoTag(list_item, data=tmdb_obj, mode=mode)
+                BaseTmdbClient.add_media_directory_item(
+                    list_item=list_item,
+                    mode=mode,
+                    title=title,
+                    ids={"tmdb_id": tmdb_id},
+                    media_type=media_type,
+                )
+            add_next_button(
+                "search_tmdb_genres",
+                mode=mode,
+                submode=submode,
+                genre_id=genre_id,
+                page=page,
+            )
+            end_of_directory()
 
     @staticmethod
     def tmdb_search_year(mode, submode, year, page):
@@ -261,89 +304,36 @@ class TmdbClient(BaseTmdbClient):
             notification("Invalid mode")
             return
 
-        results = tmdb_get(path=path, params=params)
-        if not results:
+        data = tmdb_get(path=path, params=params)
+        if not data:
             return
 
-        if getattr(results, "total_results", 0) == 0:
+        if getattr(data, "total_results", 0) == 0:
             notification("No results found")
             return
 
-        execute_thread_pool(
-            getattr(results, "results"), TmdbClient.show_tmdb_results, mode, submode
-        )
+        results = getattr(data, "results", [])
+        tmdb_meta_by_id = TmdbClient.fetch_tmdb_metadata_concurrently(results, mode)
 
-        add_next_button(
-            "search_tmdb_year", page=page, mode=mode, submode=submode, year=year
-        )
-        endOfDirectory(ADDON_HANDLE)
-
-    @staticmethod
-    def show_tmdb_results(res, mode, submode=""):
-        tmdb_id = getattr(res, "id", "")
-        tvdb_id = ""
-        media_type = res.get("media_type", "") or ""
-        number_of_seasons = 1
-        title = getattr(res, "title", "") or getattr(res, "name", "")
-        label_title = title
-        ids = {"tmdb_id": tmdb_id}
-
-        # Adjust mode for anime
-        if mode == "anime":
-            mode = submode
-
-        tmdb_obj = TmdbClient._get_tmdb_metadata(mode, media_type, tmdb_id)
-        if not tmdb_obj:
-            return
-
-        # Handle movie-specific
-        if (
-            mode == "movies"
-            or (mode == "multi" and media_type == "movie")
-            and "external_ids" in tmdb_obj
-        ):
-            if mode == "multi":
-                mode = "movies"
-                label_title = f"[B]MOVIE -[/B] {title}"
-
-            ids["imdb_id"] = tmdb_obj["external_ids"].get("imdb_id", "")
-            res.runtime = tmdb_obj.get("runtime", 0)
-            res.casts = tmdb_obj.get("casts", [])
-
-        # Handle tv-specific
-        elif (
-            mode == "tv"
-            or (mode == "multi" and media_type == "tv")
-            and "external_ids" in tmdb_obj
-        ):
-            if mode == "multi":
-                mode = "tv"
-                label_title = f"[B]TV -[/B] {title}"
-
-            ids["imdb_id"] = tmdb_obj["external_ids"].get("imdb_id", "")
-            tvdb_id = tmdb_obj["external_ids"].get("tvdb_id", "") or ""
-            ids["tvdb_id"] = tvdb_id
-            res.casts = tmdb_obj.get("credits", {}).get("cast", [])
-            number_of_seasons = tmdb_obj.get("number_of_seasons", 1) or 1
-
-        fanart_details = get_fanart_details(
-            tvdb_id=tvdb_id, tmdb_id=tmdb_id, mode=str(mode)
-        )
-
-        list_item = ListItem(label=label_title)
-
-        set_media_infoTag(
-            list_item, data=tmdb_obj, fanart_data=fanart_details, mode=str(mode)
-        )
-
-        TmdbClient.add_media_directory_item(
-            list_item,
-            mode,
-            title,
-            ids,
-            seasons_number=number_of_seasons,
-            media_type=media_type,
-        )
+        if results:
+            for item in results:
+                tmdb_id = item.get("id", "")
+                title = item.get("title", "") or item.get("name", "")
+                media_type = item.get("media_type", "")
+                list_item = ListItem(label=title)
+                tmdb_obj = tmdb_meta_by_id.get(tmdb_id)
+                set_media_infoTag(list_item, data=tmdb_obj, mode=mode)
+                BaseTmdbClient.add_media_directory_item(
+                    list_item=list_item,
+                    mode=mode,
+                    title=title,
+                    ids={"tmdb_id": tmdb_id},
+                    media_type=media_type,
+                )
+            add_next_button(
+                "search_tmdb_year", page=page, mode=mode, submode=submode, year=year
+            )
+            end_of_directory()
 
     @staticmethod
     def _get_tmdb_metadata(mode, media_type, tmdb_id):
@@ -353,13 +343,10 @@ class TmdbClient(BaseTmdbClient):
         )
 
         tmdb_obj = None
-
         if mode == "movies":
             tmdb_obj = get_tmdb_movie_details(tmdb_id)
-
         elif mode == "tv":
             tmdb_obj = get_tmdb_show_details(tmdb_id)
-
         elif mode == "multi":
             if media_type == "movie":
                 tmdb_obj = get_tmdb_movie_details(tmdb_id)
@@ -368,7 +355,6 @@ class TmdbClient(BaseTmdbClient):
             else:
                 kodilog(f"Invalid media type: {media_type}", level=xbmc.LOGERROR)
                 return None
-
         return tmdb_obj
 
     @staticmethod
@@ -379,11 +365,27 @@ class TmdbClient(BaseTmdbClient):
         if not data or getattr(data, "total_results", 0) == 0:
             notification("No results found")
             return
-        execute_thread_pool(
-            getattr(data, "results"), TmdbClient.show_tmdb_results, mode
+
+        tmdb_meta_by_id = TmdbClient.fetch_tmdb_metadata_concurrently(
+            getattr(data, "results", []), mode
         )
+
+        for res in getattr(data, "results", []):
+            tmdb_id = getattr(res, "id", "")
+            title = getattr(res, "title", "") or getattr(res, "name", "")
+            media_type = getattr(res, "media_type", "") or ""
+            list_item = ListItem(label=title)
+            tmdb_obj = tmdb_meta_by_id.get(tmdb_id)
+            set_media_infoTag(list_item, data=tmdb_obj, mode=mode)
+            BaseTmdbClient.add_media_directory_item(
+                list_item=list_item,
+                mode=mode,
+                title=title,
+                ids={"tmdb_id": tmdb_id},
+                media_type=media_type,
+            )
         add_next_button("handle_tmdb_query", query=query, page=page, mode=mode)
-        endOfDirectory(ADDON_HANDLE)
+        end_of_directory()
 
     @staticmethod
     def show_trending_movies(mode, page):
@@ -393,13 +395,95 @@ class TmdbClient(BaseTmdbClient):
         if not data or getattr(data, "total_results", 0) == 0:
             notification("No results found")
             return
-        execute_thread_pool(
-            getattr(data, "results"), TmdbClient.show_tmdb_results, mode
+
+        tmdb_meta_by_id = TmdbClient.fetch_tmdb_metadata_concurrently(
+            getattr(data, "results", []), mode
         )
+
+        for res in getattr(data, "results", []):
+            tmdb_id = getattr(res, "id", "")
+            title = getattr(res, "title", "") or getattr(res, "name", "")
+            media_type = getattr(res, "media_type", "") or ""
+            list_item = ListItem(label=title)
+            tmdb_obj = tmdb_meta_by_id.get(tmdb_id)
+            set_media_infoTag(list_item, data=tmdb_obj, mode=mode)
+            BaseTmdbClient.add_media_directory_item(
+                list_item=list_item,
+                mode=mode,
+                title=title,
+                ids={"tmdb_id": tmdb_id},
+                media_type=media_type,
+            )
         add_next_button(
             "handle_tmdb_query", query="tmdb_trending", page=page, mode=mode
         )
-        endOfDirectory(ADDON_HANDLE)
+        end_of_directory()
+
+    @staticmethod
+    def show_tmdb_item(params):
+        mode = params.get("mode", "")
+        submode = params.get("submode", "")
+        tmdb_id = params.get("id", "")
+        media_type = params.get("media_type", "")
+        title = params.get("title", "") or params.get("name", "")
+
+        # Adjust mode for anime
+        if mode == "anime":
+            mode = submode
+
+        tmdb_obj = TmdbClient._get_tmdb_metadata(mode, media_type, tmdb_id)
+        if not tmdb_obj:
+            return
+
+        if mode == "movies" or (mode == "multi" and media_type == "movie"):
+            TmdbClient._show_tmdb_movie(tmdb_obj, mode, title, tmdb_id)
+        elif mode == "tv" or (mode == "multi" and media_type == "tv"):
+            TmdbClient._show_tmdb_shows(tmdb_obj, mode, title, tmdb_id, media_type)
+        else:
+            notification("Unsupported media type or missing external_ids")
+
+    @staticmethod
+    def _show_tmdb_movie(tmdb_obj, mode, title, tmdb_id):
+        mode = "movies" if mode == "multi" else mode
+        ids = {"tmdb_id": tmdb_id}
+        ids["imdb_id"] = tmdb_obj.get("external_ids", {}).get("imdb_id", "")
+
+        from lib.search import run_search_entry
+
+        run_search_entry({"query": title, "mode": mode, "ids": json.dumps(ids)})
+
+    @staticmethod
+    def _show_tmdb_shows(tmdb_obj, mode, title, tmdb_id, media_type):
+        mode = "tv" if mode == "multi" else mode
+        ids = {"tmdb_id": tmdb_id}
+        ids["imdb_id"] = tmdb_obj.get("external_ids", {}).get("imdb_id", "")
+        tvdb_id = tmdb_obj.get("external_ids", {}).get("tvdb_id", "") or ""
+        ids["tvdb_id"] = tvdb_id
+        number_of_seasons = tmdb_obj.get("number_of_seasons", 1) or 1
+        if number_of_seasons == 1:
+            TmdbClient.show_episodes_details(
+                tv_name=title,
+                ids=ids,
+                mode=mode,
+                media_type=media_type,
+                season=number_of_seasons,
+            )
+        else:
+            TmdbClient.show_seasons_details(ids=ids, mode=mode, media_type=media_type)
+
+    @staticmethod
+    def show_seasons_details(ids, mode, media_type):
+        set_content_type("season")
+        show_season_info(ids, mode, media_type)
+        set_view("current")
+        end_of_directory()
+
+    @staticmethod
+    def show_episodes_details(tv_name, ids, mode, media_type, season):
+        set_content_type("episode")
+        show_episode_info(tv_name, season, ids, mode, media_type)
+        set_view("current")
+        end_of_directory()
 
     @staticmethod
     def show_popular_items(mode, page):
@@ -410,11 +494,26 @@ class TmdbClient(BaseTmdbClient):
         if not data or getattr(data, "total_results", 0) == 0:
             notification("No results found")
             return
-        execute_thread_pool(
-            getattr(data, "results"), TmdbClient.show_tmdb_results, mode
-        )
+
+        results = getattr(data, "results", [])
+        tmdb_meta_by_id = TmdbClient.fetch_tmdb_metadata_concurrently(results, mode)
+
+        for res in results:
+            tmdb_id = getattr(res, "id", "")
+            title = getattr(res, "title", "") or getattr(res, "name", "")
+            media_type = getattr(res, "media_type", "") or ""
+            list_item = ListItem(label=title)
+            tmdb_obj = tmdb_meta_by_id.get(tmdb_id)
+            set_media_infoTag(list_item, data=tmdb_obj, mode=mode)
+            BaseTmdbClient.add_media_directory_item(
+                list_item=list_item,
+                mode=mode,
+                title=title,
+                ids={"tmdb_id": tmdb_id},
+                media_type=media_type,
+            )
         add_next_button("handle_tmdb_query", query="tmdb_popular", page=page, mode=mode)
-        endOfDirectory(ADDON_HANDLE)
+        end_of_directory()
 
     @staticmethod
     def show_languages(mode, page):
@@ -437,7 +536,7 @@ class TmdbClient(BaseTmdbClient):
                     page=page,
                 ),
             )
-        endOfDirectory(ADDON_HANDLE)
+        end_of_directory()
 
     @staticmethod
     def show_lang_items(params):
@@ -465,9 +564,23 @@ class TmdbClient(BaseTmdbClient):
             notification("No results found")
             return
 
-        execute_thread_pool(
-            getattr(data, "results"), TmdbClient.show_tmdb_results, mode
-        )
+        results = getattr(data, "results", [])
+        tmdb_meta_by_id = TmdbClient.fetch_tmdb_metadata_concurrently(results, mode)
+
+        for res in results:
+            tmdb_id = getattr(res, "id", "")
+            title = getattr(res, "title", "") or getattr(res, "name", "")
+            media_type = getattr(res, "media_type", "") or ""
+            list_item = ListItem(label=title)
+            tmdb_obj = tmdb_meta_by_id.get(tmdb_id)
+            set_media_infoTag(list_item, data=tmdb_obj, mode=mode)
+            BaseTmdbClient.add_media_directory_item(
+                list_item=list_item,
+                mode=mode,
+                title=title,
+                ids={"tmdb_id": tmdb_id},
+                media_type=media_type,
+            )
 
         add_next_button(
             "search_tmdb_lang",
@@ -475,7 +588,8 @@ class TmdbClient(BaseTmdbClient):
             lang=lang,
             page=page,
         )
-        endOfDirectory(ADDON_HANDLE)
+
+        end_of_directory()
 
     @staticmethod
     def show_networks(mode, page):
@@ -500,7 +614,7 @@ class TmdbClient(BaseTmdbClient):
                     page=page,
                 ),
             )
-        endOfDirectory(ADDON_HANDLE)
+        end_of_directory()
 
     @staticmethod
     def show_network_items(params):
@@ -538,9 +652,23 @@ class TmdbClient(BaseTmdbClient):
             notification("No results found")
             return
 
-        execute_thread_pool(
-            getattr(data, "results"), TmdbClient.show_tmdb_results, mode
-        )
+        results = getattr(data, "results", [])
+        tmdb_meta_by_id = TmdbClient.fetch_tmdb_metadata_concurrently(results, mode)
+
+        for res in results:
+            tmdb_id = getattr(res, "id", "")
+            title = getattr(res, "title", "") or getattr(res, "name", "")
+            media_type = getattr(res, "media_type", "") or ""
+            list_item = ListItem(label=title)
+            tmdb_obj = tmdb_meta_by_id.get(tmdb_id)
+            set_media_infoTag(list_item, data=tmdb_obj, mode=mode)
+            BaseTmdbClient.add_media_directory_item(
+                list_item=list_item,
+                mode=mode,
+                title=title,
+                ids={"tmdb_id": tmdb_id},
+                media_type=media_type,
+            )
 
         add_next_button(
             "search_tmbd_network",
@@ -548,7 +676,7 @@ class TmdbClient(BaseTmdbClient):
             id=network_id,
             page=page,
         )
-        endOfDirectory(ADDON_HANDLE)
+        end_of_directory()
 
     @staticmethod
     def show_calendar_items(query, page, mode):
@@ -558,7 +686,7 @@ class TmdbClient(BaseTmdbClient):
         trending_data = tmdb_get("tv_week", page)
         if not trending_data or getattr(trending_data, "total_results") == 0:
             notification("No TV shows found")
-            endOfDirectory(ADDON_HANDLE)
+            end_of_directory()
             return
 
         results = []
@@ -651,7 +779,7 @@ class TmdbClient(BaseTmdbClient):
                 page=page + 1,
                 mode=mode,
             )
-        endOfDirectory(ADDON_HANDLE)
+        end_of_directory()
 
     @staticmethod
     def show_collections_menu(mode):
@@ -675,7 +803,7 @@ class TmdbClient(BaseTmdbClient):
                 is_folder=True,
                 icon_path=icon_path,
             )
-        endOfDirectory(ADDON_HANDLE)
+        end_of_directory()
         set_view("widelist")
 
     @staticmethod
@@ -700,7 +828,7 @@ class TmdbClient(BaseTmdbClient):
         keywords_data = Search().keywords(query, page=page)
         if not keywords_data or len(keywords_data) == 0:
             notification("No keywords found")
-            endOfDirectory(ADDON_HANDLE)
+            end_of_directory()
             return
 
         for keyword in keywords_data:
@@ -725,7 +853,7 @@ class TmdbClient(BaseTmdbClient):
         add_next_button(
             "handle_tmdb_movie_query", query="tmdb_keywords", page=page + 1, mode=mode
         )
-        endOfDirectory(ADDON_HANDLE)
+        end_of_directory()
         set_view("widelist")
 
     @staticmethod
@@ -739,31 +867,48 @@ class TmdbClient(BaseTmdbClient):
             notification("No TMDB ID found")
             return
 
+        set_pluging_category("Recommendations")
+        set_content_type(mode)
+
         if mode == "tv":
-            results = tmdb_get("tv_recommendations", {"id": tmdb_id, "page": page})
+            data = tmdb_get("tv_recommendations", {"id": tmdb_id, "page": page})
         elif mode == "movies":
-            results = tmdb_get("movie_recommendations", {"id": tmdb_id, "page": page})
+            data = tmdb_get("movie_recommendations", {"id": tmdb_id, "page": page})
         else:
             notification("Invalid mode")
             return
 
-        if not results:
+        if not data or getattr(data, "total_results", 0) == 0:
             notification("No recommendations found")
-            endOfDirectory(ADDON_HANDLE)
+            end_of_directory()
             return
 
-        execute_thread_pool(
-            getattr(results, "results"), TmdbClient.show_tmdb_results, mode
-        )
+        results = getattr(data, "results", [])
+        tmdb_meta_by_id = TmdbClient.fetch_tmdb_metadata_concurrently(results, mode)
 
-        if getattr(results, "total_pages") > page:
+        for res in results:
+            tmdb_id = getattr(res, "id", "")
+            title = getattr(res, "title", "") or getattr(res, "name", "")
+            media_type = getattr(res, "media_type", "") or ""
+            list_item = ListItem(label=title)
+            tmdb_obj = tmdb_meta_by_id.get(tmdb_id)
+            set_media_infoTag(list_item, data=tmdb_obj, mode=mode)
+            BaseTmdbClient.add_media_directory_item(
+                list_item=list_item,
+                mode=mode,
+                title=title,
+                ids={"tmdb_id": tmdb_id},
+                media_type=media_type,
+            )
+
+        if getattr(results, "total_pages", 0) > page:
             add_next_button(
                 "search_tmdb_recommendations",
                 ids=ids,
                 mode=mode,
                 page=page,
             )
-        endOfDirectory(ADDON_HANDLE)
+        end_of_directory()
 
     @staticmethod
     def search_tmdb_similar(params):
@@ -776,28 +921,107 @@ class TmdbClient(BaseTmdbClient):
             notification("No TMDB ID found")
             return
 
+        set_pluging_category("Similar")
+        set_content_type(mode)
+
         if mode == "tv":
-            results = tmdb_get("tv_similar", {"id": tmdb_id, "page": page})
+            data = tmdb_get("tv_similar", {"id": tmdb_id, "page": page})
         elif mode == "movies":
-            results = tmdb_get("movie_similar", {"id": tmdb_id, "page": page})
+            data = tmdb_get("movie_similar", {"id": tmdb_id, "page": page})
         else:
             notification("Invalid mode")
             return
 
-        if not results:
+        if not data or getattr(data, "total_results", 0) == 0:
             notification("No similar items found")
-            endOfDirectory(ADDON_HANDLE)
+            end_of_directory()
             return
 
-        execute_thread_pool(
-            getattr(results, "results"), TmdbClient.show_tmdb_results, mode
-        )
+        results = getattr(data, "results", [])
+        tmdb_meta_by_id = TmdbClient.fetch_tmdb_metadata_concurrently(results, mode)
 
-        if getattr(results, "total_pages") > page:
+        for res in getattr(results, "results", []):
+            tmdb_id = getattr(res, "id", "")
+            title = getattr(res, "title", "") or getattr(res, "name", "")
+            media_type = getattr(res, "media_type", "") or ""
+            list_item = ListItem(label=title)
+            tmdb_obj = tmdb_meta_by_id.get(tmdb_id)
+            set_media_infoTag(list_item, data=tmdb_obj, mode=mode)
+            BaseTmdbClient.add_media_directory_item(
+                list_item=list_item,
+                mode=mode,
+                title=title,
+                ids={"tmdb_id": tmdb_id},
+                media_type=media_type,
+            )
+
+        if getattr(results, "total_pages", 0) > page:
             add_next_button(
                 "search_tmdb_similar",
                 ids=ids,
                 mode=mode,
                 page=page,
             )
-        endOfDirectory(ADDON_HANDLE)
+        end_of_directory()
+
+    @staticmethod
+    def rescrape_tmdb_media(params):
+        mode = params.get("mode", "")
+        media_type = params.get("media_type", "")
+        tmdb_id = params.get("tmdb_id", "")
+        query = params.get("query", "")
+
+        if mode == "anime":
+            mode = params.get("submode", mode)
+        if mode == "multi":
+            if media_type == "movie":
+                mode = "movies"
+            elif media_type == "tv":
+                mode = "tv"
+
+        tmdb_obj = TmdbClient._get_tmdb_metadata(mode, media_type, tmdb_id)
+        if not tmdb_obj:
+            notification("TMDB metadata not found")
+            return
+
+        external_ids = tmdb_obj.get("external_ids") or {}
+        ids = {
+            "tmdb_id": tmdb_id,
+            "imdb_id": external_ids.get("imdb_id", ""),
+            "tvdb_id": external_ids.get("tvdb_id", ""),
+        }
+
+        from lib.search import run_search_entry
+
+        run_search_entry(
+            {"query": query, "mode": mode, "ids": json.dumps(ids), "rescrape": True}
+        )
+
+    @staticmethod
+    def fetch_tmdb_metadata_concurrently(results, mode):
+        future_map = {}
+        max_workers = min(8, max(1, len(results)))
+        with ThreadPoolExecutor(max_workers=max_workers) as ex:
+            for res in results:
+                tmdb_id = getattr(res, "id", "") or None
+                media_type = getattr(res, "media_type", "") or ""
+                if not tmdb_id:
+                    continue
+                future = ex.submit(
+                    TmdbClient._get_tmdb_metadata, mode, media_type, tmdb_id
+                )
+                future_map[future] = tmdb_id
+
+            tmdb_meta_by_id = {}
+            for future in as_completed(future_map):
+                tmdb_id = future_map[future]
+                try:
+                    tmdb_obj = future.result()
+                except Exception as e:
+                    kodilog(
+                        f"Error fetching TMDB metadata for id {tmdb_id}: {e}",
+                        level=xbmc.LOGWARNING,
+                    )
+                    tmdb_obj = None
+                tmdb_meta_by_id[tmdb_id] = tmdb_obj
+        return tmdb_meta_by_id

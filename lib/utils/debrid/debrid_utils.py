@@ -6,10 +6,11 @@ import requests
 from threading import Lock
 from typing import Any, Dict, List, Optional
 
-from lib.utils.debrid.debrider_helper import DebriderHelper
-from lib.utils.debrid.pm_helper import PremiumizeHelper
-from lib.utils.debrid.torbox_helper import TorboxHelper
-from lib.utils.debrid.rd_helper import RealDebridHelper
+from lib.clients.debrid.alldebrid import AllDebridHelper
+from lib.clients.debrid.debrider import DebriderHelper
+from lib.clients.debrid.premiumize import PremiumizeHelper
+from lib.clients.debrid.torbox import TorboxHelper
+from lib.clients.debrid.realdebrid import RealDebridHelper
 from lib.utils.kodi.utils import get_setting, kodilog
 from lib.utils.torrent.torrserver_utils import extract_magnet_from_url
 from lib.utils.general.utils import (
@@ -19,6 +20,7 @@ from lib.utils.general.utils import (
     IndexerType,
     get_cached,
     get_info_hash_from_magnet,
+    is_ad_enabled,
     is_debrider_enabled,
     is_ed_enabled,
     is_pm_enabled,
@@ -87,6 +89,8 @@ def get_debrid_check_functions() -> List:
         check_functions.append(PremiumizeHelper().check_cached)
     if is_debrider_enabled():
         check_functions.append(DebriderHelper().check_cached)
+    if is_ad_enabled():
+        check_functions.append(AllDebridHelper().check_cached)
     return check_functions
 
 
@@ -99,7 +103,7 @@ def execute_debrid_checks(
     lock: Lock,
 ):
     with ThreadPoolExecutor(
-        max_workers=int(get_setting("thread_number", 8))
+        max_workers=int(get_setting("thread_number", 6))
     ) as executor:
         futures = [
             executor.submit(
@@ -160,9 +164,10 @@ def get_pack_info(debrid_type, info_hash):
         info = RealDebridHelper().get_pack_info(info_hash)
     elif debrid_type == DebridType.DB:
         info = DebriderHelper().get_pack_info(info_hash)
+    elif debrid_type == DebridType.AD:
+        info = AllDebridHelper().get_pack_info(info_hash)
     else:
-        kodilog(f"Unknown debrid type: {debrid_type}")
-        info = {}
+        raise ValueError(f"Unknown debrid type for pack info: {debrid_type}")
     return info
 
 
@@ -204,48 +209,65 @@ def extract_info_hash(res: TorrentStream) -> Optional[str]:
 
 
 def get_magnet_from_uri(uri):
-    magnet = info_hash = ""
-    if is_url(uri):
-        try:
-            res = requests.head(
-                uri, allow_redirects=False, timeout=10, headers=USER_AGENT_HEADER
-            )
-            if res.status_code == 200:
-                if res.is_redirect:
-                    uri = res.headers.get("Location")
-                    if uri and uri.startswith("magnet:"):
-                        magnet = uri
-                        info_hash = get_info_hash_from_magnet(uri).lower()
-                elif res.headers.get("Content-Type") == "application/octet-stream":
-                    magnet = extract_magnet_from_url(uri)
-        except Exception as e:
-            kodilog(f"Failed to extract torrent data from: {str(e)}")
+    magnet = ""
+    info_hash = ""
+
+    if not is_url(uri):
+        return magnet, info_hash
+
+    try:
+        res = requests.head(
+            uri, allow_redirects=False, timeout=10, headers=USER_AGENT_HEADER
+        )
+        if res.status_code == 200:
+            if res.is_redirect or res.is_permanent_redirect:
+                uri = res.headers.get("Location")
+                if uri and uri.startswith("magnet:"):
+                    magnet = uri
+                    info_hash = get_info_hash_from_magnet(uri).lower()
+            elif res.headers.get("Content-Type") == "application/octet-stream":
+                magnet = extract_magnet_from_url(uri)
+                if magnet:
+                    info_hash = get_info_hash_from_magnet(magnet).lower()
+        else:
+            kodilog(f"get_magnet_from_uri: HEAD request did not return 200")
+    except Exception:
+        kodilog(f"get_magnet_from_uri: Exception occurred for uri: {uri}")
     return magnet, info_hash
 
 
 def get_debrid_direct_url(debrid_type, data) -> Optional[Dict[str, Any]]:
     info_hash = data.get("info_hash", "")
-    if debrid_type == DebridType.RD:
-        return RealDebridHelper().get_link(info_hash, data)
-    elif debrid_type == DebridType.PM:
-        return PremiumizeHelper().get_link(info_hash, data)
-    elif debrid_type == DebridType.TB:
-        return TorboxHelper().get_link(info_hash, data)
-    elif debrid_type == DebridType.DB:
-        return DebriderHelper().get_link(info_hash, data)
-    else:
+
+    helpers = {
+        DebridType.RD: RealDebridHelper,
+        DebridType.PM: PremiumizeHelper,
+        DebridType.TB: TorboxHelper,
+        DebridType.DB: DebriderHelper,
+        DebridType.AD: AllDebridHelper,
+    }
+
+    helper_cls = helpers.get(debrid_type)
+    if not helper_cls:
         kodilog(f"Unknown debrid type: {debrid_type}")
         return None
 
+    return helper_cls().get_link(info_hash, data)
+
 
 def get_debrid_pack_direct_url(debrid_type, data) -> Optional[Dict[str, Any]]:
-    if debrid_type == DebridType.RD:
-        return RealDebridHelper().get_pack_link(data)
-    elif debrid_type == DebridType.TB:
-        return TorboxHelper().get_pack_link(data)
-    else:
-        kodilog(f"Unknown debrid type for pack link: {type}")
+    helpers = {
+        DebridType.RD: RealDebridHelper,
+        DebridType.TB: TorboxHelper,
+        DebridType.AD: AllDebridHelper,
+    }
+
+    helper_cls = helpers.get(debrid_type)
+    if not helper_cls:
+        kodilog(f"Unknown debrid type for pack link: {debrid_type}")
         return None
+
+    return helper_cls().get_pack_link(data)
 
 
 def process_external_cache(data: dict, debrid: str, token: str, url: str):

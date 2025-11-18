@@ -1,3 +1,34 @@
+## 0.17.0 
+- Add AllDebrid support 
+- Add cached search for AllDebrid 
+- Fix RealDebrid episodes match not reliable.
+- Other minor fixes and improvements.
+
+Spanish:
+- Se añadió soporte para AllDebrid
+- Se añadió búsqueda con caché para AllDebrid
+- Se arreglo errores con la coincidencia de episodios en RealDebrid que no era 100% fiable.
+- Otras mejoras y correcciones menores.
+
+Note: 
+Si disfrutas de este addon, por favor considera apoyar el proyecto con una donación. Tus contribuciones ayudan a seguir mejorándolo y manteniéndolo. ¡Gracias!
+
+If you enjoy this addon, please consider supporting the project with a donation. Your contributions helps keep improving and maintaining it. Thank you!
+
+## 0.16.0
+- Add TMDB logo support for clearlogo.
+- Prowlarr: add parallel query execution and refined TV search.
+- Jackett: add multi-indexer parallel search and improved URL building.
+- Add port configuration on settings for Jackett and Prowlarr clients.
+- Enhance season pack pattern matching with additional regex options.
+- Stremio/UI: add Rutor provider and localized title for Torrentio provider selection.
+- Player: notify and handle missing magnet or URL.
+- Fanart: simplify fanart fetching.
+- Updater: replace dialog_ok with a notification for “no update” messages.
+- Skin: refactor resolver.xml layout and adjust clearlogo/fanart positioning.
+- Skin: minor UI layout improvements in resolver window and clearlogo positioning.
+- Better grouping of addon and settings configuration options.
+- Many other minor fixes and improvements.
 
 ## 0.15.1
 - HOTFIXED: Resolved multiple issues preventing addon updates.

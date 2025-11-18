@@ -21,7 +21,10 @@ from lib.downloader import (
 )
 from lib.gui.custom_dialogs import run_next_dialog, run_resume_dialog
 from lib.navigation import (
+    ad_auth,
+    ad_remove_auth,
     addon_update,
+    alldebrid_info,
     animation_item,
     animation_menu,
     anime_item,
@@ -72,9 +75,7 @@ from lib.navigation import (
     trakt_auth,
     trakt_auth_revoke,
     trakt_list_content,
-    tv_episodes_details,
     tv_menu,
-    tv_seasons_details,
     tv_shows_items,
 )
 from lib.clients.stremio.catalogs import (
@@ -103,6 +104,7 @@ from lib.clients.stremio.ui import (
 )
 
 from lib.utils.views.last_titles import delete_last_title_entry
+from lib.utils.views.shows import show_episodes_details, show_seasons_details
 import xbmc
 
 
@@ -112,8 +114,6 @@ def addon_router():
         "run_next_dialog": run_next_dialog,
         "run_resume_dialog": run_resume_dialog,
         "tv_shows_items": tv_shows_items,
-        "tv_seasons_details": tv_seasons_details,
-        "tv_episodes_details": tv_episodes_details,
         "movies_items": movies_items,
         "direct_menu": direct_menu,
         "anime_menu": anime_menu,
@@ -129,12 +129,16 @@ def addon_router():
         "search_tmdb_genres": search_tmdb_genres,
         "search_tmdb_recommendations": TmdbClient.search_tmdb_recommendations,
         "search_tmdb_similar": TmdbClient.search_tmdb_similar,
+        "rescrape_tmdb_media": TmdbClient.rescrape_tmdb_media,
         "search_direct": search_direct,
         "search_mdbd_lists": search_mdbd_lists,
         "search_people_by_id": PeopleClient.search_people_by_id,
         "user_mdbd_lists": user_mdbd_lists,
         "top_mdbd_lists": top_mdbd_lists,
         "show_mdblist_list": show_mdblist_list,
+        "show_tmdb_item": TmdbClient.show_tmdb_item,
+        "show_episodes_details": show_episodes_details,
+        "show_seasons_details": show_seasons_details,
         "handle_collection_query": TmdbClient.handle_collection_query,
         "handle_collection_details": TmdbCollections.add_collection_details,
         "handle_tmdb_person_details": PeopleClient.handle_tmdb_person_details,
@@ -161,8 +165,11 @@ def addon_router():
         "addon_update": addon_update,
         "open_burst_config": open_burst_config,
         "rd_auth": rd_auth,
+        "ad_auth": ad_auth,
         "rd_remove_auth": rd_remove_auth,
+        "ad_remove_auth": ad_remove_auth,
         "real_debrid_info": real_debrid_info,
+        "alldebrid_info": alldebrid_info,
         "debrider_auth": debrider_auth,
         "debrider_remove_auth": debrider_remove_auth,
         "debrider_info": debrider_info,

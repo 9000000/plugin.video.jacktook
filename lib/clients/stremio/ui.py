@@ -97,7 +97,6 @@ def merge_addons_lists(*lists):
 
 
 def get_addons():
-    # Always get custom addons from STREMIO_USER_ADDONS
     all_user_addons = cache.get(STREMIO_USER_ADDONS) or []
     custom_addons = [a for a in all_user_addons if a.get("transportName") == "custom"]
 
@@ -129,7 +128,7 @@ def get_addons():
             cache.set("stremio_community_addons", community_addons, timedelta(hours=12))
         merged_addons = merge_addons_lists(community_addons, custom_addons)
 
-    kodilog(f"Loaded {len(merged_addons)} addons from catalog", level=xbmc.LOGDEBUG)
+    kodilog(f"Loaded {len(merged_addons)} addons from catalog")
     return AddonManager(merged_addons)
 
 
@@ -296,8 +295,6 @@ def stremio_toggle_addons(params):
 
 
 def stremio_toggle_catalogs(params):
-    kodilog("stremio_toggle_catalogs called")
-
     selected_ids = cache.get(STREMIO_ADDONS_CATALOGS_KEY) or ""
     addon_manager = get_addons()
     addons = addon_manager.get_addons_with_resource("catalog")
@@ -347,6 +344,9 @@ def add_custom_stremio_addon(params):
     if not url:
         dialog.ok("Custom Addon", "No URL provided.")
         return
+    
+    if url.startswith("stremio://"):
+        url = url.replace("stremio://", "https://") 
 
     # Try to fetch the manifest from the URL
     try:

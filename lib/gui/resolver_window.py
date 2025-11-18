@@ -1,14 +1,15 @@
 from typing import Optional, Dict, Any
 
+from lib.clients.subtitle.submanager import SubtitleManager
 from lib.gui.base_window import BaseWindow
 from lib.gui.source_pack_select import SourcePackSelect
 from lib.player import JacktookPLayer
 from lib.utils.debrid.debrid_utils import get_pack_info
 from lib.utils.kodi.utils import ADDON_PATH, notification, set_property
 from lib.domain.torrent import TorrentStream
-from lib.clients.aisubtrans.submanager import SubtitleManager
 
 import xbmcgui
+
 
 class ResolverWindow(BaseWindow):
     def __init__(
@@ -19,7 +20,7 @@ class ResolverWindow(BaseWindow):
         item_information: Optional[Dict[str, Any]] = None,
         previous_window: Optional[BaseWindow] = None,
         close_callback: Optional[Any] = None,
-        is_subtitle_download: bool = False
+        is_subtitle_download: bool = False,
     ) -> None:
         super().__init__(
             xml_file,
@@ -36,7 +37,7 @@ class ResolverWindow(BaseWindow):
         self.item_information: Dict = item_information or {}
         self.close_callback: Optional[Any] = close_callback
         self.playback_info: Optional[Dict[str, Any]] = None
-        self.pack_data: Optional[Any] = None
+        self.pack_info: Optional[Any] = None
         self.previous_window: BaseWindow = previous_window
         self.setProperty("enable_busy_spinner", "false")
 
@@ -62,20 +63,25 @@ class ResolverWindow(BaseWindow):
         self.close_windows()
 
     def resolve_source(self) -> Optional[Dict[str, Any]]:
-        if self.source.isPack or self.pack_select:
-            self.resolve_pack_source()
-        else:
-            self.resolve_single_source()
+        try:
+            if self.source.isPack or self.pack_select:
+                self.resolve_pack_source()
+            else:
+                self.resolve_single_source()
 
-        if self.is_subtitle_download:
-            self._download_subtitle()
+            if self.is_subtitle_download:
+                self._download_subtitle()
 
-        player = JacktookPLayer(
-            on_started=self.handle_playback_started,
-            on_error=self.handle_playback_started,
-        )
-        player.run(data=self.playback_info)
-        del player
+            player = JacktookPLayer(
+                on_started=self.handle_playback_started,
+                on_error=self.handle_playback_started,
+            )
+            player.run(data=self.playback_info)
+        except Exception:
+            if self.previous_window:
+                self.previous_window.setProperty("instant_close", "true")
+                self.previous_window.close()
+            self.close()
 
     def resolve_single_source(self) -> None:
         self.playback_info = self._ensure_playback_info(source=self.source)
@@ -83,28 +89,23 @@ class ResolverWindow(BaseWindow):
             self.playback_info.update(self.item_information)
 
     def resolve_pack_source(self) -> None:
-        self.pack_data = get_pack_info(
+        self.pack_info = get_pack_info(
             debrid_type=self.source.debridType,
             info_hash=self.source.infoHash,
         )
-
         self.window = SourcePackSelect(
             "source_pack_select.xml",
             ADDON_PATH,
             source=self.source,
-            pack_info=self.pack_data,
+            pack_info=self.pack_info,
             item_information=self.item_information,
         )
-
         self.playback_info = self.window.doModal()
-
         if self.playback_info:
             self.playback_info.update(self.item_information)
         else:
             self.close_windows()
-            del self.window
-            raise SourceException("No files on the current source")
-        
+
         del self.window
 
     def _download_subtitle(self):
@@ -115,6 +116,8 @@ class ResolverWindow(BaseWindow):
             set_property("search_subtitles", "true")
             if self.playback_info:
                 self.playback_info.update({"subtitles_path": subtitles_path})
+        else:
+            raise SourceException("No subtitles found for the current source")
 
     def _update_window_properties(self, source: TorrentStream) -> None:
         self.setProperty("enable_busy_spinner", "true")

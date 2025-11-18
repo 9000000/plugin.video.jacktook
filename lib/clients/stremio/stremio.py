@@ -81,7 +81,6 @@ class StremioAddonClient(BaseClient):
         episode: Optional[int],
     ) -> List[TorrentStream]:
         try:
-            kodilog(f"Searching for {imdb_id} on {self.addon.manifest.name}")
             if mode == "tv" or media_type == "tv":
                 if not self.addon.isSupported("stream", "series", "tt"):
                     return []
@@ -96,7 +95,23 @@ class StremioAddonClient(BaseClient):
             kodilog("Using Stremio addon search URL: " + url)
 
             if self.should_use_rd_cache():
-                return self.get_rd_cached_results(imdb_id, mode, season, episode)
+                return self.get_cached_results(
+                    imdb_id,
+                    mode,
+                    season,
+                    episode,
+                    debridType="realdebrid",
+                    debridToken=get_setting("real_debrid_token"),
+                )
+            elif self.should_use_ad_cache():
+                return self.get_cached_results(
+                    imdb_id,
+                    mode,
+                    season,
+                    episode,
+                    debridType="alldebrid",
+                    debridToken=get_setting("alldebrid_token"),
+                )
 
             if get_setting("torrentio_enabled") and "torrentio" in self.addon.url():
                 providers = cache.get(TORRENTIO_PROVIDERS_KEY)
@@ -194,15 +209,25 @@ class StremioAddonClient(BaseClient):
             and self.addon.manifest.id not in EXCLUDED_RD_ADDONS
         )
 
-    def get_rd_cached_results(
+    def should_use_ad_cache(self) -> Optional[bool]:
+        """Checks if RD cache should be used for this addon."""
+        return (
+            get_setting("alldebrid_enabled")
+            and get_setting("alldebrid_cached_check")
+            and not get_setting("torrent_enable")
+            and not get_setting("stremio_loggedin")
+            and self.addon.manifest.id not in EXCLUDED_RD_ADDONS
+        )
+
+    def get_cached_results(
         self,
         imdb_id: str,
         mode: str,
         season: Optional[int],
         episode: Optional[int],
+        debridType="",
+        debridToken="",
     ) -> List[TorrentStream]:
-        """Fetches and parses Real-Debrid cached results."""
-        kodilog("Using Real-Debrid cached results")
         cached_results = process_external_cache(
             data={
                 "imdb_id": imdb_id,
@@ -210,8 +235,8 @@ class StremioAddonClient(BaseClient):
                 "episode": episode,
                 "mode": mode,
             },
-            debrid="realdebrid",
-            token=str(get_setting("real_debrid_token")),
+            debrid=debridType,
+            token=str(debridToken),
             url=self.addon.url(),
         )
         if not cached_results:

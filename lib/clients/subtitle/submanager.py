@@ -2,8 +2,8 @@ import json
 import os
 
 from typing import Any, Dict, List, Optional
-from lib.clients.aisubtrans.deepl import DeepLTranslator
-from lib.clients.aisubtrans.opensubstremio import OpenSubtitleStremioClient
+from lib.clients.subtitle.deepl import DeepLTranslator
+from lib.clients.subtitle.opensubstremio import OpenSubtitleStremioClient
 from lib.utils.kodi.utils import (
     ADDON_PROFILE_PATH,
     get_setting,
@@ -58,9 +58,6 @@ class SubtitleManager(KodiJsonRpcClient):
         return self.convert_language_iso(value) if iso_format else value
 
     def get_downloaded_subtitle_paths(self, folder_path: str) -> List[str]:
-        """
-        Recursively find all .srt subtitle files in the given folder_path.
-        """
         subtitle_files = []
         for root, _, files in os.walk(folder_path):
             for f in files:
@@ -69,11 +66,6 @@ class SubtitleManager(KodiJsonRpcClient):
         return subtitle_files
 
     def fetch_subtitles(self) -> Optional[List[str]]:
-        """
-        Download subtitles for the current video.
-        Returns a list of subtitle file paths.
-        """
-        
         title = self.data.get("title")
         mode = self.data.get("mode")
         imdb_id = self.data.get("ids", {}).get("imdb_id")
@@ -83,12 +75,12 @@ class SubtitleManager(KodiJsonRpcClient):
 
         if not imdb_id:
             kodilog("No IMDb ID found for the current video")
-            return
-
+            return 
+        
         folder_path = (
-            os.path.join(ADDON_PROFILE_PATH, "subtitles", imdb_id, str(season))
+            os.path.join(ADDON_PROFILE_PATH, "Subtitles", imdb_id, str(season), str(episode))
             if mode == "tv"
-            else os.path.join(ADDON_PROFILE_PATH, "subtitles", imdb_id)
+            else os.path.join(ADDON_PROFILE_PATH, "Subtitles", imdb_id)
         )
 
         if not os.path.exists(folder_path):
@@ -109,8 +101,9 @@ class SubtitleManager(KodiJsonRpcClient):
 
         subtitles = self.opensub_client.get_subtitles(mode, imdb_id, season, episode)
         if not subtitles:
-            kodilog("No subtitles found for the current video")
-            return
+            from lib.gui.resolver_window import SourceException
+            
+            raise SourceException("No subtitles found for the current source")
 
         subtitle_paths = self.opensub_client.download_subtitles_batch(
             subtitles, imdb_id, title=title, season=season, episode=episode
